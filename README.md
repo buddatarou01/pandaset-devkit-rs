@@ -6,7 +6,7 @@ not (only) the extrinsic calibration. The PandaSet cameras are **rolling-shutter
 each row was exposed, and the shipped projection treats every image as taken at one instant. This repository adds a small model that fixes it for all six cameras, with the parameters and a
 visualisation script.
 
-Keywords: PandaSet LiDAR camera misalignment, PandaSet projection offset, PandaSet calibration wrong, pandaset-devkit projection,
+Keywords: PandaSet LiDAR camera misalignment, PandaSet rolling shutter, SplatAD PandaSet, PandaSet projection offset, PandaSet calibration wrong, pandaset-devkit projection,
 PandaSet vs Waymo, different from Waymo,
 rolling shutter, camera time offset, LiDAR camera synchronisation, extrinsic calibration, lens distortion, Pandar64.
 
@@ -137,6 +137,30 @@ sc = Scene('099')                                            # PANDASET_ROOT mus
 p = load_params('rs_calib/rs_params.json', sc, 'left_camera')
 uv, depth, idx = Projector(sc, 'left_camera', p).project(sc.lidar(40, 0)[:, :3], 40)   # pixels, depth, index of the drawn points
 ```
+
+## Why this approach
+
+Without the shutter data that Waymo ships, PandaSet is hard to use for research that needs the LiDAR and the images to agree on
+moving frames (depth supervision, LiDAR–camera fusion, learned calibration, neural rendering).
+
+As far as we know, SplatAD (Gaussian splatting for autonomous driving) handles PandaSet by modelling the rolling shutter **and**
+optimising the camera poses at the same time. Then a timing error can be absorbed by the poses, and the result is a camera pose
+that changes with the speed of the car rather than a fixed rig.
+
+To keep the extrinsics fixed and still project the LiDAR correctly, the shutter timing has to be a variable of its own, solved
+from correspondences between the LiDAR and the images that are known to be right. Two obvious ways of getting there did not work
+for us:
+
+- **Tuning all cameras by hand at once is whack-a-mole.** The timing is shared by the cameras and partly degenerate with each
+  camera's position and principal point, so fixing one camera or one frame breaks another.
+- **Automatic edge alignment between the LiDAR and the image is unreliable here.** LiDAR flare / blooming on bright and reflective
+  surfaces, occlusion and the parallax between the LiDAR and each camera put LiDAR edges where the image has none, and the
+  alignment follows them.
+
+So the correspondences are made by hand but kept small and rough: a few objects in the foreground are picked by hand (poles,
+signs, cars, building corners), segmented, and each segment is matched to the LiDAR cluster that best fits its shape. **That the
+objects are chosen by hand is the point:** a person decides that this segment and this cluster are the same thing, which no edge
+or flare can fool, and the solver below does the rest for all cameras and sequences together.
 
 ## How the parameters were obtained
 
