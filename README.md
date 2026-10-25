@@ -79,6 +79,13 @@ day, dusk and night recordings (auto exposure), the shutter timing jitters by ro
 wide-angle cameras need small extrinsic corrections and a KB4 lens. This is a fit, not a specification; nothing in the dataset
 states it.
 
+**The individual values are not necessarily the physical ones.** The timing is a parameter of the model, but depending on the
+camera and on how the car moves it is partly degenerate with the camera position and the principal point: for a side camera
+while driving straight, a time offset, a shift of the camera along the driving direction and a shift of cx all move the projection
+in nearly the same way, and a longer readout can be traded against a later offset. The fit picks one combination of these. What
+is checked is the result: the LiDAR lines up with the images (pole, car and building edges, across speeds, rows and cameras). Do
+not read `readout`, `delta`, `tx_cm` ... as measured sensor properties.
+
 ## The model (`rs_calib/rs_model.py`)
 
 For an image of camera `c` with timestamp `t_img`, every LiDAR point is projected with the camera pose at the time of the image row
@@ -145,7 +152,9 @@ the parameters and the visualisation here are enough to use the result.
                              "dcx_px": px, "dcy_px": px, "lens": "pinhole" | "kb4", "k1": .., "k2": .., "k3": .., "k4": ..}, ...}}
 ```
 
-The values were set by eye on many scenes and refined with a least-squares fit to hand-picked objects. They are approximate:
+The values were set by eye on many scenes and refined with a least-squares fit to hand-picked objects. They reproduce the
+LiDAR alignment; individually they may not be the physical values (timing, camera position and principal point are partly
+degenerate, see above). They are approximate:
 the shutter timing also jitters by roughly 1–2 ms from frame to frame, which no constant removes; at speed this still shows on near
 objects. Missing entries mean no correction and a pinhole lens.
 
