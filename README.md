@@ -7,6 +7,7 @@ each row was exposed, and the shipped projection treats every image as taken at 
 visualisation script.
 
 Keywords: PandaSet LiDAR camera misalignment, PandaSet projection offset, PandaSet calibration wrong, pandaset-devkit projection,
+PandaSet vs Waymo, different from Waymo,
 rolling shutter, camera time offset, LiDAR camera synchronisation, extrinsic calibration, lens distortion, Pandar64.
 
 ![front_right_camera, scene 099 (about 19 m/s): top = shipped projection, bottom = rolling-shutter model](docs/rs_calib/099_front_right_t30-49.gif)
@@ -85,6 +86,24 @@ while driving straight, a time offset, a shift of the camera along the driving d
 in nearly the same way, and a longer readout can be traded against a later offset. The fit picks one combination of these. What
 is checked is the result: the LiDAR lines up with the images (pole, car and building edges, across speeds, rows and cameras). Do
 not read `readout`, `delta`, `tx_cm` ... as measured sensor properties.
+
+## Different from Waymo: what PandaSet does not ship
+
+Waymo Open Dataset uses rolling-shutter cameras too, but ships the timing and the motion needed to project correctly. PandaSet does not:
+
+| per image / per camera | Waymo Open Dataset (v2) | PandaSet |
+|---|---|---|
+| trigger time | `camera_trigger_time` | no |
+| end of readout | `camera_readout_done_time` | no |
+| exposure time | `shutter` | no (the paper mentions one estimated constant for day and one for night) |
+| readout direction | `rolling_shutter_direction` per camera | no (top to bottom, from the sensor model) |
+| ego pose and velocity at the image | `pose`, `velocity` per image | camera pose per image, no velocity |
+| lens distortion | k1, k2, p1, p2, k3 per camera | none in `intrinsics.json`; the YAML coefficients do not fit the images |
+| LiDAR point -> pixel | `camera_projection` per LiDAR point | no |
+| image timestamp | consistent with the above | one value; what it stands for has to be recovered from the LiDAR |
+
+So with PandaSet the shutter timing, the readout and the lens have to be estimated from the data before the LiDAR can be
+projected onto moving images. This repository does that.
 
 ## The model (`rs_calib/rs_model.py`)
 
