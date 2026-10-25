@@ -210,43 +210,52 @@ objects. Missing entries mean no correction and a pinhole lens.
 
 ## Alternative: solved with inter-camera overlap (`rs_calib/rs_params_overlap.json`)
 
-Same model, same format, one more kind of constraint in the solve: neighbouring cameras must agree with each other where their
-views overlap.
+Same model, same format, plus constraints between neighbouring cameras where their views overlap. In this file all six
+cameras use KB4 (the front camera too).
 
 - **Pairs.** front–front_right, front_right–right, left–front_left, front_left–front, back–left, on frames 10 and 50 of 8 scenes
-  (4 day: 158, 099, 080, 124; 4 dusk: 001, 013, 008, 003). right–back has no LiDAR point seen by both cameras on any of these
-  frames, so the ring is not closed at the back.
-- **Points.** Static LiDAR points of that frame seen by both cameras A and B: points inside cuboids that are not stationary
-  (moving cars, pedestrians) are removed, since the two cameras expose at different times; only the nearest depth in each 5 px
-  cell is kept in both views.
-- **Factor.** RoMa v2 (dense matcher) gives the pixel in B of each pixel in A. The point projected into B with the full model
-  (rolling shutter: the camera pose at the time of the row it lands on in B) must land where RoMa carries its projection in A
-  (with the pose at the time of its row in A). The factor touches both cameras' variables and the light group's timing, i.e. it
-  constrains the pose of each row in both images. 30 points per pair, spread over the rows, RoMa certainty > 0.9.
-- These factors are added to the object snapshots above and solved together.
+  (4 day: 158, 099, 080, 124; 4 dusk: 001, 013, 008, 003). right–back shares almost nothing on these frames, so the ring is
+  not closed at the back.
+- **Matches.** RoMa v2 (dense matcher) between the two images of a pair; cells with certainty > 0.9. Matches inside the image
+  of any cuboid that is not stationary (moving cars, pedestrians), in either image, are dropped: the two cameras expose at
+  different times.
+- **Epipolar factor (no LiDAR).** Each matched pixel becomes a ray from its camera at the time of its own row (rolling shutter;
+  KB4 inverted numerically). The factor is the angle of B's ray off the plane through the baseline and A's ray, in px of B. It
+  touches both cameras' variables and the light group's timing, i.e. it constrains the pose of each row in both images.
+  100 matches per pair, spread over the rows.
+- **LiDAR-point factor.** Also used in some of the solves: a static LiDAR point seen by both cameras, projected into B, must land
+  where RoMa carries its projection in A.
+- These factors are solved together with the object snapshots above; the snapshots kept being added and the timing was also
+  adjusted by eye between solves, so the file is the latest state, not the result of one solve.
 
-Measured against `rs_params.json` (all points of every snapshot; overlap points with RoMa certainty > 0.9; px, median over pairs
-or snapshots of the per-pair / per-snapshot median):
+Measured against `rs_params.json` (px; per pair / per snapshot median, then the median over pairs / snapshots; worst pair in
+brackets). Epipolar: the same RoMa matches for both files. LiDAR overlap: static points seen by both cameras.
 
 | | `rs_params.json` | `rs_params_overlap.json` |
 |---|---|---|
-| overlap front_left → front (7 pairs; worst pair) | 4.29 (5.49) | **6.73 (10.58)** |
-| overlap front → front_right (14 pairs; worst pair) | 3.65 (6.78) | 1.63 (2.67) |
-| overlap front_right → right (16 pairs; worst pair) | 3.69 (5.82) | 1.50 (2.40) |
-| overlap left → front_left (16 pairs; worst pair) | 4.21 (5.78) | 1.27 (5.35) |
-| overlap back → left (2 pairs; worst pair) | 2.73 (4.05) | 2.69 (3.58) |
-| LiDAR vs object snapshots, 205 objects (p90) | 1.51 (4.74) | **2.54 (5.50)** |
+| LiDAR vs object snapshots, 249 objects (p90) | **1.53 (4.70)** | **2.28 (4.45)** |
+| epipolar front → front_right (14 pairs) | 1.73 (7.88) | 0.49 (0.98) |
+| epipolar front_left → front (10 pairs) | 2.29 (4.52) | 0.68 (1.69) |
+| epipolar front_right → right (16 pairs) | 1.62 (3.47) | 0.71 (1.89) |
+| epipolar left → front_left (15 pairs) | 2.07 (4.65) | 0.49 (1.97) |
+| epipolar back → left (6 pairs) | 0.38 (1.29) | 0.38 (1.49) |
+| LiDAR overlap front → front_right (14 pairs) | 3.65 (6.78) | 1.06 (2.13) |
+| LiDAR overlap front_left → front (7 pairs) | 4.29 (5.49) | 1.38 (2.66) |
+| LiDAR overlap front_right → right (16 pairs) | 3.69 (5.82) | 1.12 (1.98) |
+| LiDAR overlap left → front_left (16 pairs) | 4.21 (5.78) | 1.14 (2.27) |
+| LiDAR overlap back → left (2 pairs) | 2.73 (4.05) | 2.10 (3.06) |
 
-With the overlap the object snapshots fit worse (111 of 205 by more than 0.5 px, 24 better; back camera unchanged at 0.70 →
-0.69), and front_left → front gets worse. Even RoMa's most certain matches (> 0.99) disagreed with the projection by about 3.6 px
-before this solve, a systematic offset, so part of what the overlap term fits may be RoMa's own bias rather than the calibration.
-Timing in this file: day readout 25.12 ms / delta 1.65 ms, dusk 29.11 ms / 4.92 ms (night unchanged, by eye).
+The object snapshots fit worse with this file: 124 of 249 by more than 0.5 px, 45 better; per camera (median) back 0.70 → 1.02,
+front 2.28 → 1.71, front_left 1.50 → 2.10, front_right 1.30 → 2.60, left 1.48 → 2.93, right 1.84 → 2.37. The cameras agree
+with each other better and each one with the LiDAR somewhat worse. Timing in this file: day readout 33.42 ms / delta 6.30 ms,
+dusk 33.24 ms / 7.17 ms, night 30.99 ms / 15.51 ms (night has no snapshots; by eye).
 
-![scene 158 frame 10, front_right_camera: red = LiDAR projected into front_right, green = RoMa of its projection in front_camera; top rs_params.json, bottom rs_params_overlap.json](docs/rs_calib/overlap_158_front_to_front_right.jpg)
+![scene 158 frame 10, front_right_camera: green = RoMa match of a front_camera pixel, red = its epipolar curve; top rs_params.json, bottom rs_params_overlap.json](docs/rs_calib/epipolar_158_front_to_front_right.jpg)
 
-*Scene 158, frame 10, `front_right_camera`, the overlap with `front_camera`. Red: static LiDAR points projected into
-front_right. Green: where RoMa v2 carries their projection in front_camera. Top: `rs_params.json`. Bottom:
-`rs_params_overlap.json`. The median / p90 / max of |red − green| are written on each half.*
+*Scene 158, frame 10, `front_right_camera`, the overlap with `front_camera`. Green: RoMa v2 match of a front_camera pixel.
+Red: the epipolar curve of that pixel (its ray from front_camera at the time of its row, 2–300 m, projected into front_right
+with the rolling shutter). Top: `rs_params.json`. Bottom: `rs_params_overlap.json`. Distance green – curve for the 40 drawn
+matches: median 2.80 → 0.82 px, max 3.97 → 1.44 px.*
 
     python viz_projection.py --scene 099 --cam front_left_camera --frames 0-79 --params rs_params_overlap.json --out out/099_fl --video
 
