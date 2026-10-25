@@ -2,6 +2,7 @@
 rs_params.json. One image per frame, optionally an H.264 video (needs ffmpeg).
 
     PANDASET_ROOT=/path/to/pandaset python viz_projection.py --scene 099 --cam front_right_camera --frames 0-79 --out out/099_fr --video
+    (--layout vertical: shipped above model)
 """
 import argparse
 import os
@@ -29,6 +30,8 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--scene', required=True); ap.add_argument('--cam', default='front_camera', choices=CAMS)
     ap.add_argument('--frames', default='0-79', help='a-b or comma list'); ap.add_argument('--params', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rs_params.json'))
     ap.add_argument('--out', required=True); ap.add_argument('--video', action='store_true'); ap.add_argument('--fps', type=int, default=10)
+    ap.add_argument('--layout', default='horizontal', choices=['horizontal', 'vertical'], help='shipped | model side by side, or shipped above model')
+    ap.add_argument('--width', type=int, default=0, help='output width in px (default: 1926 horizontal, 1280 vertical)')
     a = ap.parse_args(); os.makedirs(a.out, exist_ok=True)
     fr = range(int(a.frames.split('-')[0]), int(a.frames.split('-')[1]) + 1) if '-' in a.frames else [int(x) for x in a.frames.split(',')]
     sc = Scene(a.scene); p = load_params(a.params, sc, a.cam); pr = Projector(sc, a.cam, p); K0 = sc.K(a.cam); g = light_group(sc)
@@ -39,7 +42,11 @@ def main():
         Lft = overlay(img, uv0[k], q[m][k, 2], f'{a.scene} {a.cam} t={t}  shipped (poses.json + intrinsics.json)')
         uv, z, _ = pr.project(P, t)
         Rgt = overlay(img, uv, z, f'{a.scene} t={t}  rolling shutter {g}: readout {p["readout"]:.1f} ms delta {p["delta"]:+.1f} ms, {p["lens"]}')
-        frame = cv2.resize(np.hstack([Lft, np.full((1080, 12, 3), 255, np.uint8), Rgt]), (1926, 540))
+        if a.layout == 'vertical':
+            frame = np.vstack([Lft, np.full((12, 1920, 3), 255, np.uint8), Rgt]); w = a.width or 1280
+        else:
+            frame = np.hstack([Lft, np.full((1080, 12, 3), 255, np.uint8), Rgt]); w = a.width or 1926
+        frame = cv2.resize(frame, (w, int(round(frame.shape[0] * w / frame.shape[1]))), interpolation=cv2.INTER_AREA)
         cv2.imwrite(f'{a.out}/{i:03d}.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
     print(f'{len(fr)} frames -> {a.out}')
     if a.video:

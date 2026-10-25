@@ -2,27 +2,45 @@
 
 **If the PandaSet LiDAR does not line up with the camera images when you project it with the devkit** — points sliding off poles,
 cars and building edges as the car speeds up, worse at the top of the image and in turns, worst on the side cameras — the cause is
-not (only) the extrinsic calibration. The PandaSet cameras are **rolling-shutter** sensors and the shipped projection treats every
-image as taken at one instant. This repository adds a small model that fixes it for all six cameras, with the parameters and a
+not (only) the extrinsic calibration. The PandaSet cameras are **rolling-shutter** sensors, the dataset says nothing about when
+each row was exposed, and the shipped projection treats every image as taken at one instant. This repository adds a small model that fixes it for all six cameras, with the parameters and a
 visualisation script.
 
 Keywords: PandaSet LiDAR camera misalignment, PandaSet projection offset, PandaSet calibration wrong, pandaset-devkit projection,
 rolling shutter, camera time offset, LiDAR camera synchronisation, extrinsic calibration, lens distortion, Pandar64.
 
-![front_right_camera, scene 099 (about 19 m/s): left = shipped projection, right = rolling-shutter model](docs/rs_calib/099_front_right_t20-59.gif)
+![front_right_camera, scene 099 (about 19 m/s): top = shipped projection, bottom = rolling-shutter model](docs/rs_calib/099_front_right_t30-49.gif)
 
-*Scene 099, `front_right_camera`, frames 20–59 at about 19 m/s. Left: shipped poses and intrinsics (devkit projection). Right: this
-model. Colour = depth.*
+*Scene 099, `front_right_camera`, frames 30–49 at about 19 m/s, 3 frames/s. Top: shipped poses and intrinsics (devkit projection).
+Bottom: this model. Colour = depth.*
 
 ## All six cameras, same frame (scene 099, frame 40, about 19 m/s)
 
-Left half of each image: shipped projection. Right half: rolling-shutter model with `rs_calib/rs_params.json`.
+Top half of each image: shipped projection. Bottom half: rolling-shutter model with `rs_calib/rs_params.json`.
 
-| | |
-|---|---|
-| `front_camera` ![](docs/rs_calib/099_front_camera_t40.jpg) | `back_camera` ![](docs/rs_calib/099_back_camera_t40.jpg) |
-| `front_left_camera` ![](docs/rs_calib/099_front_left_camera_t40.jpg) | `front_right_camera` ![](docs/rs_calib/099_front_right_camera_t40.jpg) |
-| `left_camera` ![](docs/rs_calib/099_left_camera_t40.jpg) | `right_camera` ![](docs/rs_calib/099_right_camera_t40.jpg) |
+**`front_camera`**
+
+![front_camera](docs/rs_calib/099_front_camera_t40.jpg)
+
+**`front_left_camera`**
+
+![front_left_camera](docs/rs_calib/099_front_left_camera_t40.jpg)
+
+**`front_right_camera`**
+
+![front_right_camera](docs/rs_calib/099_front_right_camera_t40.jpg)
+
+**`left_camera`**
+
+![left_camera](docs/rs_calib/099_left_camera_t40.jpg)
+
+**`right_camera`**
+
+![right_camera](docs/rs_calib/099_right_camera_t40.jpg)
+
+**`back_camera`**
+
+![back_camera](docs/rs_calib/099_back_camera_t40.jpg)
 
 Make the same pictures (and a video) for any scene and camera:
 
@@ -30,20 +48,36 @@ Make the same pictures (and a video) for any scene and camera:
 pip install -e python                         # the devkit (pandaset.geometry)
 export PANDASET_ROOT=/path/to/pandaset         # one folder per sequence: 001, 002, ...
 cd rs_calib
-python viz_projection.py --scene 099 --cam front_right_camera --frames 0-79 --out out/099_front_right --video
+python viz_projection.py --scene 099 --cam front_right_camera --frames 0-79 --out out/099_front_right --video --layout vertical
 ```
 
 ## What is wrong with the shipped projection
 
-- **The timestamp of an image is the bottom row, not the whole image.** Each image timestamp equals the moment the 360-degree LiDAR
-  sweeps across the centre column of that camera (+0.4 to +0.7 ms, identical in day, dusk and night scenes, so no exposure time is
-  added). The **bottom** row is exposed at that time and the rows above earlier — the top row about 30 ms earlier. At 19 m/s that is
-  about 0.6 m of car motion between the top and the bottom of one image.
-- **The readout differs between the recordings** (day / dusk / night; the cameras run auto exposure).
-- **The wide-angle cameras need small extrinsic corrections and some lens distortion at the image edges.** `intrinsics.json` has
-  fx, fy, cx, cy only (pinhole). The distortion coefficients in `docs/static_extrinsic_calibration.yaml` do not fit the shipped images.
-- While the car stands still, the shipped projection fits well; the error grows with speed. This is why it is easy to blame the
+What is actually known about the cameras is little:
+
+- **They are rolling-shutter sensors that read out top to bottom.** That much follows from the camera model in the paper
+  (Leopard LI-USB30-AR023ZWDRB, ON Semiconductor AR0231, electronic rolling shutter).
+- **Nothing tells you when the rows were exposed.** PandaSet ships one timestamp per image and no shutter information: no readout
+  start / end, no exposure time, no trigger time. (Other datasets ship these, e.g. Waymo Open gives `camera_trigger_time`,
+  `camera_readout_done_time` and `shutter` for every image.) The devkit treats every row as taken at the timestamp.
+- **The timestamp itself cannot be trusted.** The paper describes it as the trigger time (the 360-degree LiDAR crossing the centre of
+  the camera's field of view) plus an estimated exposure time, one constant for day and one for night. In the data it equals the
+  LiDAR crossing of the centre column (+0.4 to +0.7 ms) in day, dusk and night scenes alike, so no exposure constant shows up, and
+  the projection does not fit at speed. Which instant the timestamp stands for, and how long the readout takes, has to be
+  recovered by aligning the images with the LiDAR.
+- **The field of view does not match the paper either.** The paper gives 107 deg horizontal for the five wide-angle cameras; the
+  shipped `intrinsics.json` (fx about 930 px on 1920 px, pinhole, no distortion) gives about 92 deg. The images are distorted at the
+  edges, and the distortion coefficients in `docs/static_extrinsic_calibration.yaml` do not fit the shipped images, so the lens
+  model has to be recovered as well.
+- While the car stands still, the shipped projection fits well and the error grows with speed. This is why it is easy to blame the
   extrinsics, and why re-calibrating the extrinsics on moving data gives a different, speed-dependent answer.
+
+What we recovered by aligning with the LiDAR (the model below, values in `rs_calib/rs_params.json`): with the rows read out top to
+bottom, the projection fits when the bottom row is taken 4–14 ms after the timestamp (day / dusk / night) and the top row about
+30 ms before the bottom row; at 19 m/s that is about 0.6 m of car motion between the top and the bottom of one image. The readout and the offset differ between the
+day, dusk and night recordings (auto exposure), the shutter timing jitters by roughly 1–2 ms from frame to frame, and the
+wide-angle cameras need small extrinsic corrections and a KB4 lens. This is a fit, not a specification; nothing in the dataset
+states it.
 
 ## The model (`rs_calib/rs_model.py`)
 
@@ -121,7 +155,7 @@ objects. Missing entries mean no correction and a pinhole lens.
 |---|---|
 | `rs_calib/rs_model.py` | projection model (`Projector`, `load_params`, `light_group`) |
 | `rs_calib/rs_params.json` | parameters |
-| `rs_calib/viz_projection.py` | side-by-side images / video: shipped projection vs. model |
+| `rs_calib/viz_projection.py` | images / video: shipped projection vs. model, side by side or one above the other |
 | `rs_calib/pandaset_io.py` | minimal reader for one sequence (images, poses, timestamps, LiDAR) |
 | `README_devkit.md`, `python/`, `tutorials/` | the original pandaset-devkit, unchanged |
 
