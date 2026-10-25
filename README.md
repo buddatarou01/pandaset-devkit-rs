@@ -224,3 +224,15 @@ objects. Missing entries mean no correction and a pinhole lens.
 - PandaSet is provided by Scale AI and Hesai under CC BY 4.0 with additional Dataset Terms (pandaset.org). The parameters and the
   images here are derived from PandaSet and are subject to the same terms. This work is not affiliated with or endorsed by Scale AI or
   Hesai.
+
+## Note
+
+Datasets such as Waymo Open and nuScenes are well prepared, but their LiDAR data do not reach far (Waymo Open: the top LiDAR
+returns are cut at 75 m; nuScenes: a 32-beam LiDAR). PandaSet is one of the few datasets with LiDAR returns well beyond 150 m
+(Pandar64 rated 200 m at 10 % reflectivity, the forward PandarGT 300 m) and cameras covering 360 degrees, which makes it valuable
+for long-range work. Its devkit, however, does not give a correct LiDAR–camera correspondence on moving frames, so this
+repository is published to provide one.
+
+If you would like to know more about the tools and the method used to obtain the parameters, please open an issue in this
+repository.
+
