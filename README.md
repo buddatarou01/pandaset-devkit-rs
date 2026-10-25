@@ -81,7 +81,7 @@ What is actually known about the cameras is little:
   extrinsics, and why re-calibrating the extrinsics on moving data gives a different, speed-dependent answer.
 
 What we recovered by aligning with the LiDAR (the model below, values in `rs_calib/rs_params.json`): with the rows read out top to
-bottom, the projection fits when the bottom row is taken 4–14 ms after the timestamp (day / dusk / night) and the top row about
+bottom, the projection fits when the bottom row is taken 3–14 ms after the timestamp (day / dusk / night) and the top row about
 30 ms before the bottom row; at 19 m/s that is about 0.6 m of car motion between the top and the bottom of one image. The readout and the offset differ between the
 day, dusk and night recordings (auto exposure), the shutter timing jitters by roughly 1–2 ms from frame to frame, and the
 wide-angle cameras need small extrinsic corrections and a KB4 lens. This is a fit, not a specification; nothing in the dataset
@@ -164,8 +164,8 @@ image segments and LiDAR points, collected interactively, and one solver shared 
    - Huber loss (1 px), trust-region least squares with a forward-difference Jacobian in which each variable re-projects only the
      snapshots it affects (a camera's variables only that camera's points, a light group's timing only that group's scenes).
 4. **Iterate.** Solve a few iterations, look at the projection again, add snapshots where it still drifts (other scenes, speeds,
-   image rows, cameras), solve again. 190 objects in 22 scenes were used (84 day, 106 dusk; front 13, front_left 45,
-   front_right 36, left 35, right 49, back 12). The night timing has no snapshots and was set by eye only.
+   image rows, cameras), solve again. 199 objects in 23 scenes were used (84 day, 115 dusk; front 13, front_left 45,
+   front_right 36, left 35, right 58, back 12). The night timing has no snapshots and was set by eye only.
 
 The tool used for steps 1–4 (an interactive web page with the snapshot and the solve) is not part of this repository; the model,
 the parameters and the visualisation here are enough to use the result.
