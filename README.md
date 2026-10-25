@@ -15,33 +15,33 @@ rolling shutter, camera time offset, LiDAR camera synchronisation, extrinsic cal
 *Scene 099, `front_right_camera`, frames 30–49 at about 19 m/s, 3 frames/s. Top: shipped poses and intrinsics (devkit projection).
 Bottom: this model. Colour = depth.*
 
-## All six cameras, same frame (scene 099, frame 40, about 19 m/s)
+## All six cameras, same frame (scene 003, frame 65, about 8.5 m/s, dusk)
 
 Top half of each image: shipped projection. Bottom half: rolling-shutter model with `rs_calib/rs_params.json`.
 
 **`front_camera`**
 
-![front_camera](docs/rs_calib/099_front_camera_t40.jpg)
+![front_camera](docs/rs_calib/003_front_camera_t65.jpg)
 
 **`front_left_camera`**
 
-![front_left_camera](docs/rs_calib/099_front_left_camera_t40.jpg)
+![front_left_camera](docs/rs_calib/003_front_left_camera_t65.jpg)
 
 **`front_right_camera`**
 
-![front_right_camera](docs/rs_calib/099_front_right_camera_t40.jpg)
+![front_right_camera](docs/rs_calib/003_front_right_camera_t65.jpg)
 
 **`left_camera`**
 
-![left_camera](docs/rs_calib/099_left_camera_t40.jpg)
+![left_camera](docs/rs_calib/003_left_camera_t65.jpg)
 
 **`right_camera`**
 
-![right_camera](docs/rs_calib/099_right_camera_t40.jpg)
+![right_camera](docs/rs_calib/003_right_camera_t65.jpg)
 
 **`back_camera`**
 
-![back_camera](docs/rs_calib/099_back_camera_t40.jpg)
+![back_camera](docs/rs_calib/003_back_camera_t65.jpg)
 
 ## Zoom on poles, one per camera
 
