@@ -71,6 +71,38 @@ p = load_params('rs_calib/rs_params.json', sc, 'left_camera')
 uv, depth, idx = Projector(sc, 'left_camera', p).project(sc.lidar(40, 0)[:, :3], 40)   # pixels, depth, index of the drawn points
 ```
 
+## How the parameters were obtained
+
+The parameters were not fitted to a full ground truth. They come from a small number of object-level correspondences between
+image segments and LiDAR points, collected interactively, and one solver shared by all sequences and cameras.
+
+1. **Start from the shipped calibration** and look at the projection frame by frame (the side-by-side view above). Coarse values
+   (readout, delta, a few tenths of a degree, a few cm, the KB4 coefficients) were first set by eye on frames where the drift is
+   obvious: high speed, near poles and cars, turns, the image edges.
+2. **Object correspondences ("snapshots").** On a frame, click an object (pole, sign, car, building corner). A SAM 3 point prompt
+   segments it. The LiDAR points that project into the mask with the current parameters are split into depth groups (a new group
+   starts at a depth gap larger than max(0.5 m, 5 %)). The object's group is the one with the largest
+   (points inside the mask) x (share of the LiDAR points at that depth, inside a box 1.5x the mask, that fall in the mask): the
+   object lies mostly inside its mask, the background behind it spreads outside, stray points are few. The group's points
+   (world coordinates) and the mask are stored. This takes a second per object and needs no annotation.
+3. **One solver for everything.** All snapshots of all sequences and cameras go into one robust least-squares problem (a small
+   factor graph):
+   - variables: `readout`, `delta` per light group (shared by all cameras); per camera the extrinsic correction (yaw, pitch, roll,
+     tx, ty, tz), the principal-point shift (dcx, dcy) and, for KB4 cameras, k1..k4;
+   - one factor per snapshot point: the px distance of its projection (with the full model above) to the snapshot's mask
+     (0 inside, bilinear distance transform outside; or, alternatively, to the pixel the point had when the snapshot was taken);
+     10 points per object, spread from top to bottom so that every object weighs the same and the rows constrain the readout;
+   - one prior per variable that keeps it near its current value (0.2 deg, 5 cm, 10 px, 5 ms, 0.05 for k), so variables that no
+     snapshot constrains do not drift;
+   - Huber loss (1 px), trust-region least squares with a forward-difference Jacobian in which each variable re-projects only the
+     snapshots it affects (a camera's variables only that camera's points, a light group's timing only that group's scenes).
+4. **Iterate.** Solve a few iterations, look at the projection again, add snapshots where it still drifts (other scenes, speeds,
+   image rows, cameras), solve again. 190 objects in 22 scenes were used (84 day, 106 dusk; front 13, front_left 45,
+   front_right 36, left 35, right 49, back 12). The night timing has no snapshots and was set by eye only.
+
+The tool used for steps 1–4 (an interactive web page with the snapshot and the solve) is not part of this repository; the model,
+the parameters and the visualisation here are enough to use the result.
+
 ## Parameters (`rs_calib/rs_params.json`)
 
 ```json
