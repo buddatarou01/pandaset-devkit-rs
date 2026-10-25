@@ -1,319 +1,101 @@
-# pandaset-devkit
+# PandaSet LiDAR–camera misalignment fixed: rolling shutter + time offset model for all 6 cameras
 
-![Header Animation](../assets/animations/semseg-photo-labels.gif)
+**If the PandaSet LiDAR does not line up with the camera images when you project it with the devkit** — points sliding off poles,
+cars and building edges as the car speeds up, worse at the top of the image and in turns, worst on the side cameras — the cause is
+not (only) the extrinsic calibration. The PandaSet cameras are **rolling-shutter** sensors and the shipped projection treats every
+image as taken at one instant. This repository adds a small model that fixes it for all six cameras, with the parameters and a
+visualisation script.
 
+Keywords: PandaSet LiDAR camera misalignment, PandaSet projection offset, PandaSet calibration wrong, pandaset-devkit projection,
+rolling shutter, camera time offset, LiDAR camera synchronisation, extrinsic calibration, lens distortion, Pandar64.
 
-## Overview
+![front_right_camera, scene 099 (about 19 m/s): left = shipped projection, right = rolling-shutter model](docs/rs_calib/099_front_right_t20-59.gif)
 
-Welcome to the repository of the [PandaSet](https://pandaset.org/ "Pandaset Official Website") Devkit.
+*Scene 099, `front_right_camera`, frames 20–59 at about 19 m/s. Left: shipped poses and intrinsics (devkit projection). Right: this
+model. Colour = depth.*
 
-## Dataset
-### Download
+## All six cameras, same frame (scene 099, frame 40, about 19 m/s)
 
-To download the dataset, please visit the official [PandaSet](https://pandaset.org/ "Pandaset Official Website") webpage and sign up through the form.
-You will then be forwarded to a page with download links to the raw data and annotations.
+Left half of each image: shipped projection. Right half: rolling-shutter model with `rs_calib/rs_params.json`.
 
-### Unpack
+| | |
+|---|---|
+| `front_camera` ![](docs/rs_calib/099_front_camera_t40.jpg) | `back_camera` ![](docs/rs_calib/099_back_camera_t40.jpg) |
+| `front_left_camera` ![](docs/rs_calib/099_front_left_camera_t40.jpg) | `front_right_camera` ![](docs/rs_calib/099_front_right_camera_t40.jpg) |
+| `left_camera` ![](docs/rs_calib/099_left_camera_t40.jpg) | `right_camera` ![](docs/rs_calib/099_right_camera_t40.jpg) |
 
-Unpack the archive into any directory on your hard disk. The path will be referenced in usage of `pandaset-devkit` later, and does not have to be in the same directory as your scripts.
+Make the same pictures (and a video) for any scene and camera:
 
-### Structure
-
-#### Files & Folders
-
-```text
-.
-├── LICENSE.txt
-├── annotations
-│   ├── cuboids
-│   │   ├── 00.pkl.gz
-│   │   .
-│   │   .
-│   │   .
-│   │   └── 79.pkl.gz
-│   └── semseg  // Semantic Segmentation is available for specific scenes
-│       ├── 00.pkl.gz
-│       .
-│       .
-│       .
-│       ├── 79.pkl.gz
-│       └── classes.json
-├── camera
-│   ├── back_camera
-│   │   ├── 00.jpg
-│   │   .
-│   │   .
-│   │   .
-│   │   ├── 79.jpg
-│   │   ├── intrinsics.json
-│   │   ├── poses.json
-│   │   └── timestamps.json
-│   ├── front_camera
-│   │   └── ...
-│   ├── front_left_camera
-│   │   └── ...
-│   ├── front_right_camera
-│   │   └── ...
-│   ├── left_camera
-│   │   └── ...
-│   └── right_camera
-│       └── ...
-├── lidar
-│   ├── 00.pkl.gz
-│   .
-│   .
-│   .
-│   ├── 79.pkl.gz
-│   ├── poses.json
-│   └── timestamps.json
-└── meta
-    ├── gps.json
-    └── timestamps.json
+```bash
+pip install -e python                         # the devkit (pandaset.geometry)
+export PANDASET_ROOT=/path/to/pandaset         # one folder per sequence: 001, 002, ...
+cd rs_calib
+python viz_projection.py --scene 099 --cam front_right_camera --frames 0-79 --out out/099_front_right --video
 ```
 
-## Instructions
+## What is wrong with the shipped projection
 
-### Setup
+- **The timestamp of an image is the bottom row, not the whole image.** Each image timestamp equals the moment the 360-degree LiDAR
+  sweeps across the centre column of that camera (+0.4 to +0.7 ms, identical in day, dusk and night scenes, so no exposure time is
+  added). The **bottom** row is exposed at that time and the rows above earlier — the top row about 30 ms earlier. At 19 m/s that is
+  about 0.6 m of car motion between the top and the bottom of one image.
+- **The readout differs between the recordings** (day / dusk / night; the cameras run auto exposure).
+- **The wide-angle cameras need small extrinsic corrections and some lens distortion at the image edges.** `intrinsics.json` has
+  fx, fy, cx, cy only (pinhole). The distortion coefficients in `docs/static_extrinsic_calibration.yaml` do not fit the shipped images.
+- While the car stands still, the shipped projection fits well; the error grows with speed. This is why it is easy to blame the
+  extrinsics, and why re-calibrating the extrinsics on moving data gives a different, speed-dependent answer.
 
-1. Create a Python>=3.6 environment with `pip` installed.
-2. Clone the repository `git clone git@github.com:scaleapi/pandaset-devkit.git`
-3. `cd` into `pandaset-devkit/python`
-4. Execute `pip install .`
+## The model (`rs_calib/rs_model.py`)
 
-The `pandaset-devkit` is now installed in your Python>=3.6 environment and can be used.
-
-### Usage
-
-To get familiar with the API you can point directly to the downloaded dataset.
-
-#### Initialization
-First, we need to create a `DataSet` object that searches for sequences.
-```
->>> from pandaset import DataSet
->>> dataset = DataSet('/data/pandaset')
-```
-Afterwards we can list all the sequence IDs that have been found in the data folder.
-```
->>> print(dataset.sequences())
-['002',...]
-```
-
-Since semantic segmentation annotations are not always available for scenes, we can filter to get only scenes that have both semantic segmentation as well as cuboid annotations.
-```
->>> print(dataset.sequences(with_semseg=True))
-['002',...]
-```
-
-Now, we access a specific sequence by choosing its key from the previously returned list, in this case sequence ID `'002'`
-```
->>> seq002 = dataset['002']
-```
-
-
-
-API Reference: [DataSet class](https://scaleapi.github.io/pandaset-devkit/dataset.html#pandaset.dataset.DataSet)
-
-#### Loading
-The devkit will automatically search the sequence directory for available sensor data, metadata and annotations and prepare the directory to be loaded explicitly. At this point no point clouds or images have been loaded into memory.
-To execute the loading of sensor data and metadata into memory, we simply call the `load()` method on the sequence object. This will load all available sensor data and metadata. 
-```
->>> seq002.load()
-```
-
-If only certain data is required for analysis, there are more specific methods available, which can also be chained to each other.
-```
->>> seq002.load_lidar().load_cuboids()
-```
-
-API Reference: [Sequence class](https://scaleapi.github.io/pandaset-devkit/sequence.html#pandaset.sequence.Sequence)
-
-#### Data Access
-
-##### LiDAR
-The LiDAR point clouds are stored as [pandas.DataFrames](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html#pandas.DataFrame) and therefore you are able to leverage their extensive API for data manipulation. This includes the simple return as a [numpy.ndarray](https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html).
-```
->>> pc0 = seq002.lidar[0]
->>> print(pc0)
-                 x           y         z     i             t  d
-index                                                          
-0       -75.131138  -79.331690  3.511804   7.0  1.557540e+09  0
-1      -112.588306 -118.666002  1.423499  31.0  1.557540e+09  0
-2       -42.085902  -44.384891  0.593491   7.0  1.557540e+09  0
-3       -27.329435  -28.795053 -0.403781   0.0  1.557540e+09  0
-4        -6.196208   -6.621082  1.130009   3.0  1.557540e+09  0
-            ...         ...       ...   ...           ... ..
-166763   27.670526   17.159726  3.778677  25.0  1.557540e+09  1
-166764   27.703935   17.114063  3.780626  27.0  1.557540e+09  1
-166765   27.560664   16.955518  3.767948  18.0  1.557540e+09  1
-166766   27.384433   16.783824  3.752670  22.0  1.557540e+09  1
-166767   27.228821   16.626038  3.739154  20.0  1.557540e+09  1
-[166768 rows x 6 columns]
-```
-```
->>> pc0_np = seq002.lidar[0].values  # Returns the first LiDAR frame in the sequence as an numpy ndarray
->>> print(pc0_np)
-[[-7.51311379e+01 -7.93316897e+01  3.51180427e+00  7.00000000e+00
-   1.55753996e+09  0.00000000e+00]
- [-1.12588306e+02 -1.18666002e+02  1.42349938e+00  3.10000000e+01
-   1.55753996e+09  0.00000000e+00]
- [-4.20859017e+01 -4.43848908e+01  5.93490847e-01  7.00000000e+00
-   1.55753996e+09  0.00000000e+00]
- ...
- [ 2.75606640e+01  1.69555183e+01  3.76794770e+00  1.80000000e+01
-   1.55753996e+09  1.00000000e+00]
- [ 2.73844334e+01  1.67838237e+01  3.75266969e+00  2.20000000e+01
-   1.55753996e+09  1.00000000e+00]
- [ 2.72288210e+01  1.66260378e+01  3.73915448e+00  2.00000000e+01
-   1.55753996e+09  1.00000000e+00]]
-```
-
-The LiDAR points are stored in a world coordinate system; therefore it is not required to transform them using the vehicle's pose graph. This allows you to query all LiDAR frames in the sequence or a certain sampling rate and simply visualize them using your preferred library.
-
-Instead of using always all of the point clouds available, it is also possible to simply slice the `lidar` property as one is used from python lists.
-```
->>> pc_all = seq002.lidar[:]  # Returns all LiDAR frames from the sequence
-```
-```
->>> pc_sampled = seq002.lidar[::2]  # Returns every second LiDAR frame from the sequence
-```
-
-In addition to the LiDAR points, the `lidar` property also holds the sensor pose (`lidar.poses`) in world coordinate system and timestamp (`lidar.timestamps`) for every LiDAR frame recorded. Both objects can be sliced in the same way as the `lidar` property holding the point clouds.
-```
->>> sl = slice(None, None, 5)  # Equivalent to [::5]  # Extract every fifth frame including sensor pose and timestamps
->>> lidar_obj = seq002.lidar
->>> pcs = lidar_obj[sl]
->>> poses = lidar_obj.poses[sl]
->>> timestamps = lidar_obj.timestamps[sl]
->>> print( len(pcs) == len(poses) == len(timestamps) )
-True
-```
-
-The LiDAR point clouds include by default the points from both the mechanical 360° LiDAR and the front-facing LiDAR. To select only one of the sensors, the `set_sensor` method is available.
-```
->>> pc0 = s002.lidar[0]
->>> print(pc0.shape)
-(166768, 6)
->>> s002.lidar.set_sensor(0)  # set to include only mechanical 360° LiDAR
->>> pc0_sensor0 = s002.lidar[0]
->>> print(pc0_sensor0.shape)
-(106169, 6)
->>> s002.lidar.set_sensor(1)  # set to include only front-facing LiDAR
->>> pc0_sensor1 = s002.lidar[0]
->>> print(pc0_sensor1.shape)
-(60599, 6)
-```
-Since the applied filter operation leaves the original row index intact for each point (relevant for joining with `SemanticSegmentation`), one can easily test that no point was left out in filtering:
-```
->>> import pandas as pd
->>> pc0_concat = pd.concat([pc0_sensor0, pc0_sensor1])
->>> print(pc0_concat.shape)
-(166768, 6)
->>> print(pc0 == pc0_concat)
-           x     y     z     i     t     d
-index                                     
-0       True  True  True  True  True  True
-1       True  True  True  True  True  True
-2       True  True  True  True  True  True
-3       True  True  True  True  True  True
-4       True  True  True  True  True  True
-      ...   ...   ...   ...   ...   ...
-166763  True  True  True  True  True  True
-166764  True  True  True  True  True  True
-166765  True  True  True  True  True  True
-166766  True  True  True  True  True  True
-166767  True  True  True  True  True  True
-[166768 rows x 6 columns]
->>> print((~(pc0 == pc0_concat)).sum())  # Counts the number of cells with `False` value, i.e., the ones where original point cloud and concatenated filtered point cloud differentiate
-x    0
-y    0
-z    0
-i    0
-t    0
-d    0
-dtype: int64
-```
-
-API Reference: [Lidar class](https://scaleapi.github.io/pandaset-devkit/sensors.html#pandaset.sensors.Lidar)
-
-##### Cameras
-Since the recording vehicle was equipped with multiple cameras, first we need to list which cameras have been used to record the sequence.
-```
->>> print(seq002.camera.keys())
-['front_camera', 'left_camera', 'back_camera', 'right_camera', 'front_left_camera', 'front_right_camera']
-```
-The camera count and names should be equal for all sequences.
-
-Each camera name has its recordings loaded as [Pillow Image](https://pillow.readthedocs.io/en/stable/reference/Image.html) object, and can be accessed via normal list slicing. In the following example, we select the first image from the front camera and display it using the Pillow library in Python.
-```
->>> front_camera = seq002.camera['front_camera']
->>> img0 = front_camera[0]
->>> img0.show()
-```
-Afterwards the extensive Pillow Image API can be used for image manipulation, conversion or export.
-
-Similar to the `Lidar` object, each `Camera` object has properties that hold the camera pose (`camera.poses`) and timestamp (`camera.timestamps`) for every recorded frame, as well as the camera intrinsics (`camera.intrinsics`).
-Again, the objects can be sliced the same way as the `Camera` object:
+For an image of camera `c` with timestamp `t_img`, every LiDAR point is projected with the camera pose at the time of the image row
+`v` it lands on (3 fixed-point passes):
 
 ```
->>> sl = slice(None, None, 5)  # Equivalent to [::5]
->>> camera_obj = seq002.camera['front_camera']
->>> pcs = camera_obj[sl]
->>> poses = camera_obj.poses[sl]
->>> timestamps = camera_obj.timestamps[sl]
->>> intrinsics = camera_obj.intrinsics 
+t(v)   = t_img + delta - readout * (1079 - v) / 1079     # ms; bottom row = t_img + delta, top row readout earlier
+ego(t) = front-camera pose (poses.json) at t_img, moved with constant velocity (central difference of the front poses)
+pose_c = ego(t) * X_c * C_c     # X_c: shipped extrinsic (camera -> front camera, mean over frames)
+                                # C_c: correction, shift tx, ty, tz (cm) + yaw / pitch / roll (deg) in the camera frame
+pixel  = lens_c(K_c, point)     # K_c: shipped fx, fy, cx + dcx, cy + dcy; lens pinhole or Kannala-Brandt 4 terms (KB4)
 ```
 
-API Reference: [Camera class](https://scaleapi.github.io/pandaset-devkit/sensors.html#pandaset.sensors.Camera)
+`readout` and `delta` are shared by all cameras of one light group, chosen from the local (US Pacific) time of the scene's first
+timestamp: 2019-05-11 morning = `day`, 2019-05-10 before 21:00 = `dusk`, 21:00 or later = `night`.
 
-#### Meta
-In addition to the sensor data, the loaded dataset also contains the following meta information:
-* GPS Positions
-* Timestamps
+```python
+import sys; sys.path.insert(0, 'rs_calib')
+from pandaset_io import Scene
+from rs_model import Projector, load_params
 
-These can be directly accessed through the known list slicing operations, and read in their dict format. The following example shows how to get the GPS coordinates of the vehicle on the first frame.
-```
->>> pose0 = seq002.gps[0]
->>> print(pose0['lat'])
-37.776089291519924
->>> print(pose0['long'])
--122.39931707791749
+sc = Scene('099')                                            # PANDASET_ROOT must be set
+p = load_params('rs_calib/rs_params.json', sc, 'left_camera')
+uv, depth, idx = Projector(sc, 'left_camera', p).project(sc.lidar(40, 0)[:, :3], 40)   # pixels, depth, index of the drawn points
 ```
 
-API Reference: [GPS class](https://scaleapi.github.io/pandaset-devkit/meta.html#pandaset.meta.GPS)
+## Parameters (`rs_calib/rs_params.json`)
 
-API Reference: [Timestamps class](https://scaleapi.github.io/pandaset-devkit/meta.html#pandaset.meta.Timestamps)
-
-#### Annotations
-
-##### Cuboids
-The LiDAR Cuboid annotations are also stored inside the sequence object as a [pandas.DataFrames](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html#pandas.DataFrame) for each timestamp.
-The position coordinates (`position.x`,`position.y`,`position.z`) are located at the center of a cuboid. `dimensions.x` is the width of the cuboid from left to right, `dimensions.y` is the length of the cuboid from front to back and `dimensions.z` is the height of the cuboid from top to bottom.
-
-```
->>> cuboids0 = seq002.cuboids[0]  # Returns the cuboid annotations for the first LiDAR frame in the sequence
->>> print(cuboids0.columns)
-Index(['uuid', 'label', 'yaw', 'stationary', 'camera_used', 'position.x',
-       'position.y', 'position.z', 'dimensions.x', 'dimensions.y',
-       'dimensions.z', 'attributes.object_motion', 'cuboids.sibling_id',
-       'cuboids.sensor_id', 'attributes.rider_status',
-       'attributes.pedestrian_behavior', 'attributes.pedestrian_age'],
-      dtype='object')
+```json
+{"timing":  {"day": {"readout": ms, "delta": ms}, "dusk": {...}, "night": {...}},
+ "cameras": {"left_camera": {"yaw": deg, "pitch": deg, "roll": deg, "tx_cm": cm, "ty_cm": cm, "tz_cm": cm,
+                             "dcx_px": px, "dcy_px": px, "lens": "pinhole" | "kb4", "k1": .., "k2": .., "k3": .., "k4": ..}, ...}}
 ```
 
-API Reference: [Cuboids class](https://scaleapi.github.io/pandaset-devkit/annotations.html#pandaset.annotations.Cuboids)
+The values were set by eye on many scenes and refined with a least-squares fit to hand-picked objects. They are approximate:
+the shutter timing also jitters by roughly 1–2 ms from frame to frame, which no constant removes; at speed this still shows on near
+objects. Missing entries mean no correction and a pinhole lens.
 
-##### Semantic Segmentation
-Analogous to the cuboid annotations, the Semantic Segmentation can be accessed using the `semseg` property on the sequence object. The index of each Semantic Segmentation data frame corresponds to the index of each LiDAR point cloud data frame, and can be joined using the index.
-```
->>> semseg0 = seq002.semseg[0]  # Returns the semantic segmentation for the first LiDAR frame in the sequence
->>> print(semseg0.columns)
-Index(['class'], dtype='object')
->>> print(seq002.semseg.classes)
-{'1': 'Smoke', '2': 'Exhaust', '3': 'Spray or rain', '4': 'Reflection', '5': 'Vegetation', '6': 'Ground', '7': 'Road', '8': 'Lane Line Marking', '9': 'Stop Line Marking', '10': 'Other Road Marking', '11': 'Sidewalk', '12': 'Driveway', '13': 'Car', '14': 'Pickup Truck', '15': 'Medium-sized Truck', '16': 'Semi-truck', '17': 'Towed Object', '18': 'Motorcycle', '19': 'Other Vehicle - Construction Vehicle', '20': 'Other Vehicle - Uncommon', '21': 'Other Vehicle - Pedicab', '22': 'Emergency Vehicle', '23': 'Bus', '24': 'Personal Mobility Device', '25': 'Motorized Scooter', '26': 'Bicycle', '27': 'Train', '28': 'Trolley', '29': 'Tram / Subway', '30': 'Pedestrian', '31': 'Pedestrian with Object', '32': 'Animals - Bird', '33': 'Animals - Other', '34': 'Pylons', '35': 'Road Barriers', '36': 'Signs', '37': 'Cones', '38': 'Construction Signs', '39': 'Temporary Construction Barriers', '40': 'Rolling Containers', '41': 'Building', '42': 'Other Static Object'}
-```
+## Files
 
-API Reference: [SemanticSegmentation class](https://scaleapi.github.io/pandaset-devkit/annotations.html#pandaset.annotations.SemanticSegmentation)
+| file | content |
+|---|---|
+| `rs_calib/rs_model.py` | projection model (`Projector`, `load_params`, `light_group`) |
+| `rs_calib/rs_params.json` | parameters |
+| `rs_calib/viz_projection.py` | side-by-side images / video: shipped projection vs. model |
+| `rs_calib/pandaset_io.py` | minimal reader for one sequence (images, poses, timestamps, LiDAR) |
+| `README_devkit.md`, `python/`, `tutorials/` | the original pandaset-devkit, unchanged |
 
+## Licence and attribution
 
-
-![Header Animation](../assets/static/montage-semseg-projection.jpg)
+- The devkit is Apache License 2.0 (`LICENSE.md`, Copyright Scale AI); the `rs_calib/` files and `docs/rs_calib/` images are additions.
+- PandaSet is provided by Scale AI and Hesai under CC BY 4.0 with additional Dataset Terms (pandaset.org). The parameters and the
+  images here are derived from PandaSet and are subject to the same terms. This work is not affiliated with or endorsed by Scale AI or
+  Hesai.
