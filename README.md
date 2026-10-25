@@ -43,6 +43,13 @@ Top half of each image: shipped projection. Bottom half: rolling-shutter model w
 
 ![back_camera](docs/rs_calib/099_back_camera_t40.jpg)
 
+## Zoom on poles, one per camera
+
+Crops around a pole (or a thin post) for each camera, at the fastest frame where we marked one. Left: shipped projection. Right:
+this model. Scene, frame and speed are written above each pair.
+
+![poles, shipped vs model, all six cameras](docs/rs_calib/pole_zoom.jpg)
+
 Make the same pictures (and a video) for any scene and camera:
 
 ```bash
