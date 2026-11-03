@@ -23,6 +23,15 @@ Each panel is a 360° projection: azimuth across, 0 = forward, clockwise positiv
 
 ---
 
+## Why this is needed
+
+Anything that treats the LiDAR as a sensor needs each return as a ray: where it started, in which direction, at what time, and from which beam. PandaSet gives only where the ray ended. If `poses.json` is taken as the sensor, every ray starts 1.86 m too low and 0.78 m too far back.
+
+- **Re-deskewing with a better trajectory.** Each point was placed in the world with PandaSet's own pose at its time. To place it again with another trajectory (SMORE, a camera-LiDAR bundle adjustment), the point has to be undone first: the pose at its time, then the mount, back to the sensor. With the wrong origin, the undo is wrong by the mount itself.
+- **Rays, not points.** Free space along a ray, occlusion, and the incidence angle on a surface all depend on where the ray started. Converting PandaSet to another layout (e.g. a nuScenes-style `LIDAR_TOP` sweep in the sensor frame) needs the real sensor origin too.
+- **LiDAR simulation and range images.** Rendering a LiDAR in a reconstructed scene (Gaussian splatting with LiDAR, SplatAD-style) needs the 64 beam elevations, the per-channel azimuth offsets and the firing times. That means knowing which beam each point came from.
+- **Checking LiDAR against the cameras.** The front camera's pose relative to `poses.json` differs between scenes in yaw by −0.43 to +0.37°, in steps of about 0.02°, while the cameras keep one rig. To tell whether that is the LiDAR or the poses, the LiDAR has to be expressed in its own frame first.
+
 ## 1. What PandaSet gives
 
 Per sequence, `lidar/` contains:
