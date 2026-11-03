@@ -25,12 +25,28 @@ Each panel is a 360° projection: azimuth across, 0 = forward, clockwise positiv
 
 ## Why this is needed
 
-Anything that treats the LiDAR as a sensor needs each return as a ray: where it started, in which direction, at what time, and from which beam. PandaSet gives only where the ray ended. If `poses.json` is taken as the sensor, every ray starts 1.86 m too low and 0.78 m too far back.
+**A shipped sweep is only as right as the pose it was made with.** A spinning LiDAR takes 0.1 s per sweep while the car moves. Each return was placed in the world with the vehicle pose at its own time. If that pose is wrong, the sweep is wrong: walls bend, poles double, the ground tilts. The error is then baked into the "point cloud".
 
-- **Re-deskewing with a better trajectory.** Each point was placed in the world with PandaSet's own pose at its time. To place it again with another trajectory (SMORE, a camera-LiDAR bundle adjustment), the point has to be undone first: the pose at its time, then the mount, back to the sensor. With the wrong origin, the undo is wrong by the mount itself.
-- **Rays, not points.** Free space along a ray, occlusion, and the incidence angle on a surface all depend on where the ray started. Converting PandaSet to another layout (e.g. a nuScenes-style `LIDAR_TOP` sweep in the sensor frame) needs the real sensor origin too.
-- **LiDAR simulation and range images.** Rendering a LiDAR in a reconstructed scene (Gaussian splatting with LiDAR, SplatAD-style) needs the 64 beam elevations, the per-channel azimuth offsets and the firing times. That means knowing which beam each point came from.
-- **Checking LiDAR against the cameras.** The front camera's pose relative to `poses.json` differs between scenes in yaw by −0.43 to +0.37°, in steps of about 0.02°, while the cameras keep one rig. To tell whether that is the LiDAR or the poses, the LiDAR has to be expressed in its own frame first.
+**The only way back is to deskew again, and deskewing well means solving pose and surfaces together.** Re-placing each return with a corrected pose needs the return as the sensor saw it. That is its origin, direction, time and beam, i.e. the mount and the beam model recovered here.
+
+A corrected pose cannot simply be picked first. Ad-hoc deskewing (one pose per sweep, or constant velocity) tends to lock in a wrong pose: the deskewed sweep looks consistent with the very pose that made it. The pose and the surfaces it implies have to be solved together, as SMORE does. That again needs per-return rays, not world points.
+
+**Without the full chain, a camera–LiDAR mismatch cannot be traced.** When a box fitted to LiDAR does not sit on the object in the image, the cause can be any of these:
+
+- the vehicle pose
+- the deskew
+- the LiDAR mount
+- a camera extrinsic
+- camera timing
+
+From world points alone, these cannot be told apart. In scene 048, the LiDAR and the cameras disagreed in turns, and it was not possible to say which link was wrong. The front camera's pose relative to `poses.json` also changes between scenes in yaw, from −0.43 to +0.37° in steps of about 0.02°, while the cameras keep one rig. Whether that is the LiDAR or the poses can only be settled once the LiDAR is in its own frame.
+
+**Some tasks need the cameras and the LiDAR to agree exactly.** One example is labelling geometry automatically: one box for a static object, the same in every frame and in every camera, transferred by pose rather than redrawn. Any residual mismatch shows up as a box that slides off the object. So the data has to go back to the sensor once, and be put together again from there.
+
+Smaller uses of the same recovery:
+
+- **Rays:** free space, occlusion and incidence angles all need the real ray origin. If `poses.json` is taken as the sensor, every ray starts 1.86 m too low and 0.78 m too far back. Converting to sensor-frame layouts (e.g. a nuScenes-style `LIDAR_TOP`) needs the same origin.
+- **LiDAR simulation:** rendering the Pandar64 in a reconstructed scene needs the beam of each return.
 
 ## 1. What PandaSet gives
 
